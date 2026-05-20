@@ -1,6 +1,15 @@
 import * as Effect from "effect/Effect";
 
 import * as DesktopIpc from "./DesktopIpc.ts";
+import {
+  browserBack,
+  browserForward,
+  browserGetStatus,
+  browserHide,
+  browserNavigate,
+  browserReload,
+  browserSetBounds,
+} from "./methods/browser.ts";
 import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
 import {
   getSavedEnvironmentRegistry,
@@ -75,6 +84,13 @@ export const installDesktopIpcHandlers = Effect.gen(function* () {
   yield* ipc.handle(setTheme);
   yield* ipc.handle(showContextMenu);
   yield* ipc.handle(openExternal);
+  yield* ipc.handle(browserSetBounds);
+  yield* ipc.handle(browserHide);
+  yield* ipc.handle(browserNavigate);
+  yield* ipc.handle(browserBack);
+  yield* ipc.handle(browserForward);
+  yield* ipc.handle(browserReload);
+  yield* ipc.handle(browserGetStatus);
 
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);

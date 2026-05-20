@@ -13,6 +13,7 @@ import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopBackendManager from "../backend/DesktopBackendManager.ts";
+import * as DesktopBrowserHarness from "../browser/DesktopBrowserHarness.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopObservability from "./DesktopObservability.ts";
@@ -134,6 +135,7 @@ const bootstrap = Effect.gen(function* () {
   const state = yield* DesktopState.DesktopState;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const browserHarness = yield* DesktopBrowserHarness.DesktopBrowserHarness;
   const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
   yield* logBootstrapInfo("bootstrap start");
 
@@ -176,6 +178,8 @@ const bootstrap = Effect.gen(function* () {
 
   yield* installDesktopIpcHandlers;
   yield* logBootstrapInfo("bootstrap ipc handlers registered");
+  yield* browserHarness.start;
+  yield* logBootstrapInfo("bootstrap browser harness registered");
 
   if (!(yield* Ref.get(state.quitting))) {
     yield* backendManager.start;

@@ -129,7 +129,12 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
   const [inputValue, setInputValue] = useState(() => normalizeBrowserDisplayUrl(activeTab?.url));
   const [serverReachable, setServerReachable] = useState(true);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const nativeBrowser = typeof window !== "undefined" ? window.desktopBridge?.browser : undefined;
+  const useNativeBrowser = Boolean(nativeBrowser);
+  const activeTabId = activeTab?.id ?? null;
   const activeTabUrl = activeTab?.url ?? null;
+  const activeTabReloadNonce = activeTab?.reloadNonce ?? 0;
 
   useEffect(() => {
     setInputValue(normalizeBrowserDisplayUrl(activeTabUrl));
@@ -137,6 +142,9 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
   }, [activeTab?.id, activeTabUrl]);
 
   useEffect(() => {
+    if (useNativeBrowser) {
+      return;
+    }
     if (!activeTabUrl || activeTabUrl === "about:blank" || !isLocalPreviewUrl(activeTabUrl)) {
       return;
     }
@@ -174,7 +182,84 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
         window.clearTimeout(timer);
       }
     };
-  }, [activeTabUrl, serverReachable]);
+  }, [activeTabUrl, serverReachable, useNativeBrowser]);
+
+  useEffect(() => {
+    if (!nativeBrowser) {
+      return;
+    }
+    const element = contentRef.current;
+    if (!element) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    const syncBounds = () => {
+      frameId = null;
+      const rect = element.getBoundingClientRect();
+      void nativeBrowser
+        .setBounds({
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+          visible:
+            Boolean(activeTab && activeTab.url !== "about:blank") &&
+            rect.width > 8 &&
+            rect.height > 8,
+        })
+        .catch(() => undefined);
+    };
+    const scheduleSync = () => {
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(syncBounds);
+    };
+
+    const observer = new ResizeObserver(scheduleSync);
+    observer.observe(element);
+    window.addEventListener("resize", scheduleSync);
+    scheduleSync();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleSync);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      void nativeBrowser.hide().catch(() => undefined);
+    };
+  }, [activeTab, nativeBrowser]);
+
+  useEffect(() => {
+    if (!nativeBrowser || !activeTabId || !activeTabUrl) {
+      return;
+    }
+    void nativeBrowser
+      .navigate({ url: activeTabUrl })
+      .then((status) => {
+        if (status.title) {
+          setTabTitle(projectKey, activeTabId, status.title);
+        }
+        setTabError(projectKey, activeTabId, null);
+      })
+      .catch((error: unknown) => {
+        setTabError(
+          projectKey,
+          activeTabId,
+          error instanceof Error ? error.message : "Failed to load browser page.",
+        );
+      });
+  }, [
+    activeTabId,
+    activeTabReloadNonce,
+    activeTabUrl,
+    nativeBrowser,
+    projectKey,
+    setTabError,
+    setTabTitle,
+  ]);
 
   const canGoBack = Boolean(activeTab && activeTab.historyIndex > 0);
   const canGoForward = Boolean(activeTab && activeTab.historyIndex < activeTab.history.length - 1);
@@ -182,6 +267,7 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
     ? `${activeTab.id}:${activeTab.url}:${activeTab.reloadNonce}`
     : "empty";
   const showIframe = Boolean(
+    !useNativeBrowser &&
     activeTab &&
     activeTab.url !== "about:blank" &&
     (!isLocalPreviewUrl(activeTab.url) || serverReachable),
@@ -284,14 +370,22 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
         <BrowserIconButton
           label="Back"
           disabled={!canGoBack}
-          onClick={() => activeTab && goBack(projectKey, activeTab.id)}
+          onClick={() => {
+            if (!activeTab) return;
+            goBack(projectKey, activeTab.id);
+            void nativeBrowser?.back().catch(() => undefined);
+          }}
         >
           <ArrowLeftIcon className="size-3.5" />
         </BrowserIconButton>
         <BrowserIconButton
           label="Forward"
           disabled={!canGoForward}
-          onClick={() => activeTab && goForward(projectKey, activeTab.id)}
+          onClick={() => {
+            if (!activeTab) return;
+            goForward(projectKey, activeTab.id);
+            void nativeBrowser?.forward().catch(() => undefined);
+          }}
         >
           <ArrowRightIcon className="size-3.5" />
         </BrowserIconButton>
@@ -302,6 +396,7 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
             setServerReachable(true);
             if (activeTab) {
               reloadTab(projectKey, activeTab.id);
+              void nativeBrowser?.reload().catch(() => undefined);
             }
           }}
         >
@@ -328,7 +423,7 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
           <ExternalLinkIcon className="size-3.5" />
         </BrowserIconButton>
       </form>
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+      <div ref={contentRef} className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {showIframe && activeTab ? (
           <iframe
             key={iframeKey}
@@ -352,7 +447,7 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
           <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
             Enter a URL to preview a local app or external page.
           </div>
-        ) : localServerDown ? (
+        ) : !useNativeBrowser && localServerDown ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
             <GlobeIcon className="size-8 opacity-50" />
             <div>Dev server not responding</div>

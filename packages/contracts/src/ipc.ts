@@ -369,6 +369,46 @@ export const PickFolderOptionsSchema = Schema.Struct({
   initialPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 
+export interface DesktopBrowserBoundsInput {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+}
+
+export const DesktopBrowserBoundsInputSchema = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+  visible: Schema.Boolean,
+});
+
+export interface DesktopBrowserNavigateInput {
+  url: string;
+}
+
+export const DesktopBrowserNavigateInputSchema = Schema.Struct({
+  url: Schema.String,
+});
+
+export interface DesktopBrowserStatus {
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  harnessUrl: string | null;
+}
+
+export const DesktopBrowserStatusSchema = Schema.Struct({
+  url: Schema.String,
+  title: Schema.String,
+  canGoBack: Schema.Boolean,
+  canGoForward: Schema.Boolean,
+  harnessUrl: Schema.NullOr(Schema.String),
+});
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
@@ -414,6 +454,15 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  browser?: {
+    setBounds: (input: DesktopBrowserBoundsInput) => Promise<void>;
+    hide: () => Promise<void>;
+    navigate: (input: DesktopBrowserNavigateInput) => Promise<DesktopBrowserStatus>;
+    back: () => Promise<DesktopBrowserStatus>;
+    forward: () => Promise<DesktopBrowserStatus>;
+    reload: () => Promise<DesktopBrowserStatus>;
+    getStatus: () => Promise<DesktopBrowserStatus>;
+  };
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
