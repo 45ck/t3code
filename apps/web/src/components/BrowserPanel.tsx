@@ -124,17 +124,22 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
   const reloadTab = useBrowserPanelStore((store) => store.reloadTab);
   const setTabTitle = useBrowserPanelStore((store) => store.setTabTitle);
   const setTabError = useBrowserPanelStore((store) => store.setTabError);
+  const syncActiveTabStatus = useBrowserPanelStore((store) => store.syncActiveTabStatus);
   const activeTab =
     panelState.tabs.find((tab) => tab.id === panelState.activeTabId) ?? panelState.tabs[0] ?? null;
   const [inputValue, setInputValue] = useState(() => normalizeBrowserDisplayUrl(activeTab?.url));
   const [serverReachable, setServerReachable] = useState(true);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const nativeVisibleRef = useRef(false);
+  const lastNativeStatusRef = useRef<{ url: string; reloadNonce: number } | null>(null);
   const nativeBrowser = typeof window !== "undefined" ? window.desktopBridge?.browser : undefined;
   const useNativeBrowser = Boolean(nativeBrowser);
   const activeTabId = activeTab?.id ?? null;
   const activeTabUrl = activeTab?.url ?? null;
   const activeTabReloadNonce = activeTab?.reloadNonce ?? 0;
+  const activeTabVisible = Boolean(activeTab && activeTab.url !== "about:blank");
+  nativeVisibleRef.current = activeTabVisible;
 
   useEffect(() => {
     setInputValue(normalizeBrowserDisplayUrl(activeTabUrl));
@@ -203,10 +208,7 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
           y: rect.top,
           width: rect.width,
           height: rect.height,
-          visible:
-            Boolean(activeTab && activeTab.url !== "about:blank") &&
-            rect.width > 8 &&
-            rect.height > 8,
+          visible: nativeVisibleRef.current && rect.width > 8 && rect.height > 8,
         })
         .catch(() => undefined);
     };
@@ -230,10 +232,47 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
       }
       void nativeBrowser.hide().catch(() => undefined);
     };
-  }, [activeTab, nativeBrowser]);
+  }, [nativeBrowser]);
+
+  useEffect(() => {
+    if (!nativeBrowser) {
+      return;
+    }
+    const element = contentRef.current;
+    if (!element) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    void nativeBrowser
+      .setBounds({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        visible: activeTabVisible && rect.width > 8 && rect.height > 8,
+      })
+      .catch(() => undefined);
+  }, [activeTabVisible, nativeBrowser]);
+
+  useEffect(() => {
+    if (!nativeBrowser?.onStatus) {
+      return;
+    }
+    return nativeBrowser.onStatus((status) => {
+      lastNativeStatusRef.current = { url: status.url, reloadNonce: activeTabReloadNonce };
+      syncActiveTabStatus(projectKey, status);
+    });
+  }, [activeTabReloadNonce, nativeBrowser, projectKey, syncActiveTabStatus]);
 
   useEffect(() => {
     if (!nativeBrowser || !activeTabId || !activeTabUrl) {
+      return;
+    }
+    const lastNativeStatus = lastNativeStatusRef.current;
+    if (
+      lastNativeStatus?.url === activeTabUrl &&
+      lastNativeStatus.reloadNonce === activeTabReloadNonce
+    ) {
       return;
     }
     void nativeBrowser
@@ -242,7 +281,7 @@ const BrowserPanel = memo(function BrowserPanel({ projectKey }: BrowserPanelProp
         if (status.title) {
           setTabTitle(projectKey, activeTabId, status.title);
         }
-        setTabError(projectKey, activeTabId, null);
+        setTabError(projectKey, activeTabId, status.error ?? null);
       })
       .catch((error: unknown) => {
         setTabError(

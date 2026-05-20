@@ -399,6 +399,7 @@ export interface DesktopBrowserStatus {
   canGoBack: boolean;
   canGoForward: boolean;
   harnessUrl: string | null;
+  error?: string | null;
 }
 
 export const DesktopBrowserStatusSchema = Schema.Struct({
@@ -407,6 +408,7 @@ export const DesktopBrowserStatusSchema = Schema.Struct({
   canGoBack: Schema.Boolean,
   canGoForward: Schema.Boolean,
   harnessUrl: Schema.NullOr(Schema.String),
+  error: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 
 export interface DesktopBridge {
@@ -462,6 +464,7 @@ export interface DesktopBridge {
     forward: () => Promise<DesktopBrowserStatus>;
     reload: () => Promise<DesktopBrowserStatus>;
     getStatus: () => Promise<DesktopBrowserStatus>;
+    onStatus: (listener: (status: DesktopBrowserStatus) => void) => () => void;
   };
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;

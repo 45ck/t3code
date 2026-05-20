@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import type { DesktopBrowserStatus } from "@t3tools/contracts";
+
 import { createBrowserTab, type BrowserTab } from "./browser";
 
 export type BrowserPanelKey = string;
@@ -68,6 +70,24 @@ function navigateBrowserTab(tab: BrowserTab, url: string): BrowserTab {
   };
 }
 
+function syncBrowserTabStatus(tab: BrowserTab, status: DesktopBrowserStatus): BrowserTab {
+  const url = status.url || "about:blank";
+  const title = status.title.trim() || null;
+  const lastError = status.error?.trim() || null;
+  if (tab.url === url) {
+    return { ...tab, title, lastError };
+  }
+  const history = status.canGoBack ? [...tab.history.slice(0, tab.historyIndex + 1), url] : [url];
+  return {
+    ...tab,
+    url,
+    title,
+    history,
+    historyIndex: history.length - 1,
+    lastError,
+  };
+}
+
 interface BrowserPanelStoreState {
   browserStateByKey: Record<BrowserPanelKey, BrowserPanelState>;
   addTab: (key: BrowserPanelKey, url?: string) => void;
@@ -80,6 +100,7 @@ interface BrowserPanelStoreState {
   reloadTab: (key: BrowserPanelKey, tabId: string) => void;
   setTabTitle: (key: BrowserPanelKey, tabId: string, title: string | null) => void;
   setTabError: (key: BrowserPanelKey, tabId: string, error: string | null) => void;
+  syncActiveTabStatus: (key: BrowserPanelKey, status: DesktopBrowserStatus) => void;
 }
 
 export const useBrowserPanelStore = create<BrowserPanelStoreState>()(
@@ -207,6 +228,28 @@ export const useBrowserPanelStore = create<BrowserPanelStoreState>()(
             ...state,
             tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, lastError: error } : tab)),
           }));
+        },
+        syncActiveTabStatus: (key, status) => {
+          updatePanel(key, (state) => {
+            const activeTabId = state.activeTabId ?? state.tabs[0]?.id ?? null;
+            if (!activeTabId) {
+              if (!status.url || status.url === "about:blank") {
+                return state;
+              }
+              const tab = createBrowserTab(status.url);
+              return {
+                tabs: [syncBrowserTabStatus(tab, status)],
+                activeTabId: tab.id,
+              };
+            }
+            return {
+              ...state,
+              activeTabId,
+              tabs: state.tabs.map((tab) =>
+                tab.id === activeTabId ? syncBrowserTabStatus(tab, status) : tab,
+              ),
+            };
+          });
         },
       };
     },

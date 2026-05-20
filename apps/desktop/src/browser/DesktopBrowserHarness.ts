@@ -20,6 +20,7 @@ import * as Electron from "electron";
 
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as IpcChannels from "../ipc/channels.ts";
 
 const MCP_PROTOCOL_VERSION = "2025-03-26";
 const MCP_SESSION_ID = "t3-browser-session";
@@ -110,11 +111,19 @@ function normalizeBrowserUrl(rawUrl: string): string {
   if (trimmed === "" || trimmed === "about:blank") {
     return "about:blank";
   }
-  const candidate = /^[A-Za-z][A-Za-z\d+.-]*:/.test(trimmed) ? trimmed : `http://${trimmed}`;
-  return new URL(candidate).toString();
+  try {
+    const candidate = /^[A-Za-z][A-Za-z\d+.-]*:/.test(trimmed) ? trimmed : `http://${trimmed}`;
+    return new URL(candidate).toString();
+  } catch {
+    return trimmed;
+  }
 }
 
 function getPrimaryNetworkHost(): string | null {
+  const override = process.env.T3CODE_BROWSER_MCP_ADVERTISE_HOST?.trim();
+  if (override) {
+    return override;
+  }
   for (const entries of Object.values(NodeOS.networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.family === "IPv4" && !entry.internal) {
@@ -128,6 +137,7 @@ function getPrimaryNetworkHost(): string | null {
 function makeStatus(
   view: Electron.WebContentsView | null,
   harness: HarnessServerState | null,
+  error?: string | null,
 ): DesktopBrowserStatus {
   const webContents = view?.webContents;
   if (!webContents || webContents.isDestroyed()) {
@@ -137,6 +147,7 @@ function makeStatus(
       canGoBack: false,
       canGoForward: false,
       harnessUrl: harness?.providerUrl ?? null,
+      error: error ?? null,
     };
   }
 
@@ -146,6 +157,7 @@ function makeStatus(
     canGoBack: webContents.canGoBack(),
     canGoForward: webContents.canGoForward(),
     harnessUrl: harness?.providerUrl ?? null,
+    error: error ?? null,
   };
 }
 
@@ -178,9 +190,12 @@ function sendJson(
   payload: unknown,
   extraHeaders?: Record<string, string>,
 ): void {
+  if (response.headersSent) {
+    return;
+  }
   response.writeHead(statusCode, {
     "content-type": "application/json",
-    "access-control-allow-origin": "*",
+    "access-control-allow-origin": "t3code://desktop",
     ...extraHeaders,
   });
   response.end(JSON.stringify(payload));
@@ -230,8 +245,22 @@ const make = Effect.gen(function* () {
   const harnessRef = yield* Ref.make<HarnessServerState | null>(null);
   const lastElementsRef = yield* Ref.make<readonly BrowserElementSnapshot[]>([]);
   const consoleEntriesRef = yield* Ref.make<readonly BrowserConsoleEntry[]>([]);
+  const lastErrorRef = yield* Ref.make<string | null>(null);
 
   const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
+
+  const emitStatus = Effect.gen(function* () {
+    const status = makeStatus(
+      yield* Ref.get(viewRef),
+      yield* Ref.get(harnessRef),
+      yield* Ref.get(lastErrorRef),
+    );
+    for (const window of Electron.BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(IpcChannels.BROWSER_STATUS_CHANNEL, status);
+      }
+    }
+  });
 
   const ensureView = Effect.fn("desktop.browser.ensureView")(function* () {
     const existing = yield* Ref.get(viewRef);
@@ -260,13 +289,26 @@ const make = Effect.gen(function* () {
       }
       return { action: "deny" };
     });
+    const emitCurrentStatus = () => {
+      void runPromise(Ref.set(lastErrorRef, null).pipe(Effect.andThen(emitStatus)));
+    };
+    view.webContents.on("did-navigate", emitCurrentStatus);
+    view.webContents.on("did-navigate-in-page", emitCurrentStatus);
+    view.webContents.on("did-finish-load", emitCurrentStatus);
+    view.webContents.on("page-title-updated", emitCurrentStatus);
     view.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+      const message = `${errorDescription || "Failed to load page"} (${errorCode})`;
       void runPromise(
-        logWarning("browser page failed to load", {
-          errorCode,
-          errorDescription,
-          url: validatedURL,
-        }),
+        Ref.set(lastErrorRef, message).pipe(
+          Effect.andThen(emitStatus),
+          Effect.andThen(
+            logWarning("browser page failed to load", {
+              errorCode,
+              errorDescription,
+              url: validatedURL,
+            }),
+          ),
+        ),
       );
     });
     view.webContents.on("console-message", (_event, level, message, line, sourceId) => {
@@ -321,7 +363,11 @@ const make = Effect.gen(function* () {
   });
 
   const getStatus = Effect.gen(function* () {
-    return makeStatus(yield* Ref.get(viewRef), yield* Ref.get(harnessRef));
+    return makeStatus(
+      yield* Ref.get(viewRef),
+      yield* Ref.get(harnessRef),
+      yield* Ref.get(lastErrorRef),
+    );
   });
 
   const navigate = Effect.fn("desktop.browser.navigate")(function* (
@@ -335,12 +381,31 @@ const make = Effect.gen(function* () {
       });
     }
     const view = yield* ensureView();
+    yield* Ref.set(lastErrorRef, null);
     if (url === "about:blank") {
-      view.webContents.loadURL(url);
+      yield* Effect.tryPromise({
+        try: () => view.webContents.loadURL(url),
+        catch: (cause) =>
+          new DesktopBrowserHarnessError({
+            operation: "navigate",
+            detail: `Failed to load ${url}.`,
+            cause,
+          }),
+      });
     } else {
-      yield* Effect.promise(() => view.webContents.loadURL(url).catch(() => undefined));
+      yield* Effect.tryPromise({
+        try: () => view.webContents.loadURL(url),
+        catch: (cause) =>
+          new DesktopBrowserHarnessError({
+            operation: "navigate",
+            detail: `Failed to load ${url}.`,
+            cause,
+          }),
+      });
     }
-    return yield* getStatus;
+    const status = yield* getStatus;
+    yield* emitStatus;
+    return status;
   });
 
   const back = Effect.gen(function* () {
@@ -658,15 +723,23 @@ const make = Effect.gen(function* () {
           const url = new URL(request.url ?? "/", "http://127.0.0.1");
           if (request.method === "OPTIONS") {
             response.writeHead(204, {
-              "access-control-allow-origin": "*",
+              "access-control-allow-origin": "t3code://desktop",
               "access-control-allow-methods": "POST, OPTIONS",
               "access-control-allow-headers": "content-type, authorization, mcp-session-id",
             });
             response.end();
             return;
           }
-          if (request.method !== "POST" || url.pathname !== "/mcp") {
+          if (url.pathname !== "/mcp") {
             sendJson(response, 404, { error: "Not found" });
+            return;
+          }
+          if (request.method !== "POST") {
+            response.writeHead(405, {
+              allow: "POST, OPTIONS",
+              "mcp-session-id": MCP_SESSION_ID,
+            });
+            response.end();
             return;
           }
           const bearer = request.headers.authorization?.replace(/^Bearer\s+/i, "");
@@ -684,12 +757,18 @@ const make = Effect.gen(function* () {
                 cause,
               }),
           });
-          const payload = JSON.parse(body);
+          let payload: unknown;
+          try {
+            payload = JSON.parse(body);
+          } catch {
+            sendJson(response, 400, jsonRpcError(null, -32700, "Parse error."));
+            return;
+          }
           if (!payload || typeof payload !== "object") {
             sendJson(response, 400, jsonRpcError(null, -32600, "Invalid JSON-RPC request."));
             return;
           }
-          const result = yield* handleMcpRequest(payload);
+          const result = yield* handleMcpRequest(payload as Record<string, unknown>);
           if (result === null) {
             response.writeHead(202, { "mcp-session-id": MCP_SESSION_ID });
             response.end();
@@ -697,8 +776,16 @@ const make = Effect.gen(function* () {
           }
           sendJson(response, 200, result, { "mcp-session-id": MCP_SESSION_ID });
         }).pipe(
-          Effect.catch((error: DesktopBrowserHarnessError) =>
-            Effect.sync(() => sendJson(response, 500, jsonRpcError(null, -32000, error.message))),
+          Effect.catch((error: unknown) =>
+            Effect.sync(() => {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : typeof error === "string"
+                    ? error
+                    : "Browser harness request failed.";
+              sendJson(response, 500, jsonRpcError(null, -32000, message));
+            }),
           ),
         ),
       );
@@ -708,7 +795,7 @@ const make = Effect.gen(function* () {
       try: () =>
         new Promise<{ port: number }>((resolve, reject) => {
           server.once("error", reject);
-          server.listen(0, "0.0.0.0", () => {
+          server.listen(0, process.env.T3CODE_BROWSER_MCP_BIND_HOST ?? "0.0.0.0", () => {
             const address = server.address();
             if (address && typeof address === "object") {
               resolve({ port: address.port });

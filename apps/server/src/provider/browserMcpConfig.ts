@@ -19,6 +19,30 @@ export interface BrowserMcpConfig {
   readonly token: string | null;
 }
 
+function parseJsonObject(rawConfig: string): Record<string, unknown> | null {
+  const trimmed = rawConfig.trim();
+  if (!trimmed) {
+    return {};
+  }
+  const withoutLineComments = trimmed.replace(
+    /("(?:[^"\\]|\\.)*")|\/\/[^\n]*/g,
+    (match, stringLiteral: string | undefined) => (stringLiteral ? match : ""),
+  );
+  const withoutBlockComments = withoutLineComments.replace(
+    /("(?:[^"\\]|\\.)*")|\/\*[\s\S]*?\*\//g,
+    (match, stringLiteral: string | undefined) => (stringLiteral ? match : ""),
+  );
+  const withoutTrailingCommas = withoutBlockComments.replace(/,(\s*[}\]])/g, "$1");
+  try {
+    const parsed = JSON.parse(withoutTrailingCommas) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function readBrowserMcpConfigFromEnv(): BrowserMcpConfig | null {
   const url = process.env.T3CODE_BROWSER_MCP_URL?.trim();
   if (!url) {
@@ -85,11 +109,11 @@ export function mergeOpenCodeBrowserMcpConfig(rawConfig: string | undefined): st
   const browserConfig = readBrowserMcpConfigFromEnv();
   let base: Record<string, unknown> = {};
   if (rawConfig && rawConfig.trim().length > 0) {
-    try {
-      base = JSON.parse(rawConfig) as Record<string, unknown>;
-    } catch {
-      base = {};
+    const parsed = parseJsonObject(rawConfig);
+    if (!parsed) {
+      return rawConfig;
     }
+    base = parsed;
   }
   if (!browserConfig) {
     return JSON.stringify(base);
