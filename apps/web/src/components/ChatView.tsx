@@ -342,6 +342,7 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      onBrowserPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "server";
       draftId?: never;
@@ -350,6 +351,7 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      onBrowserPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "draft";
       draftId: DraftId;
@@ -617,6 +619,7 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     threadId,
     routeKind,
+    onBrowserPanelOpen,
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
   } = props;
@@ -1714,6 +1717,7 @@ export default function ChatView(props: ChatViewProps) {
   const browserOpen = diffOpen && activeRightPanelTab === "browser";
   const openUrlInBrowserStore = useBrowserPanelStore((store) => store.openUrl);
   const activeBrowserProjectKey = activeProjectRef ? scopedProjectKey(activeProjectRef) : null;
+  const browserPanelAvailable = Boolean(activeBrowserProjectKey);
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -1746,7 +1750,26 @@ export default function ChatView(props: ChatViewProps) {
     threadId,
   ]);
   const onToggleBrowser = useCallback(() => {
-    if (!isServerThread || !activeBrowserProjectKey) {
+    if (!browserPanelAvailable) {
+      return;
+    }
+    onBrowserPanelOpen?.();
+    if (routeKind === "draft") {
+      if (!draftId) {
+        return;
+      }
+      void navigate({
+        to: "/draft/$draftId",
+        params: { draftId },
+        replace: true,
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          if (diffOpen && activeRightPanelTab === "browser") {
+            return { ...rest, diff: undefined };
+          }
+          return { ...rest, diff: "1", rpt: "browser" };
+        },
+      });
       return;
     }
     void navigate({
@@ -1765,20 +1788,38 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [
-    activeBrowserProjectKey,
     activeRightPanelTab,
+    browserPanelAvailable,
     diffOpen,
+    draftId,
     environmentId,
-    isServerThread,
     navigate,
+    onBrowserPanelOpen,
+    routeKind,
     threadId,
   ]);
   const onOpenUrlInBrowser = useCallback(
     (url: string) => {
-      if (!isServerThread || !activeBrowserProjectKey) {
+      if (!browserPanelAvailable || !activeBrowserProjectKey) {
         return false;
       }
       openUrlInBrowserStore(activeBrowserProjectKey, url);
+      onBrowserPanelOpen?.();
+      if (routeKind === "draft") {
+        if (!draftId) {
+          return false;
+        }
+        void navigate({
+          to: "/draft/$draftId",
+          params: { draftId },
+          replace: true,
+          search: (previous) => {
+            const rest = stripDiffSearchParams(previous);
+            return { ...rest, diff: "1", rpt: "browser" };
+          },
+        });
+        return true;
+      }
       void navigate({
         to: "/$environmentId/$threadId",
         params: {
@@ -1795,10 +1836,13 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeBrowserProjectKey,
+      browserPanelAvailable,
+      draftId,
       environmentId,
-      isServerThread,
       navigate,
+      onBrowserPanelOpen,
       openUrlInBrowserStore,
+      routeKind,
       threadId,
     ],
   );
@@ -3630,6 +3674,7 @@ export default function ChatView(props: ChatViewProps) {
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           browserOpen={browserOpen}
+          browserAvailable={browserPanelAvailable}
           browserToggleShortcutLabel={browserPanelShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}

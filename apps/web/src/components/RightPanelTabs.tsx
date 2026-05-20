@@ -33,6 +33,8 @@ export function RightPanelTabs({
   projectKey,
   renderDiff,
   renderBrowser,
+  showDiffTab = true,
+  showBrowserTab = true,
 }: {
   activeTab: RightPanelTab;
   onTabChange: (tab: RightPanelTab) => void;
@@ -40,16 +42,22 @@ export function RightPanelTabs({
   projectKey: BrowserPanelKey | null;
   renderDiff: boolean;
   renderBrowser: boolean;
+  showDiffTab?: boolean;
+  showBrowserTab?: boolean;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 min-h-10 items-center gap-1 border-b border-border bg-card px-2">
-        <TabButton active={activeTab === "diff"} onClick={() => onTabChange("diff")}>
-          Diff
-        </TabButton>
-        <TabButton active={activeTab === "browser"} onClick={() => onTabChange("browser")}>
-          Browser
-        </TabButton>
+        {showDiffTab ? (
+          <TabButton active={activeTab === "diff"} onClick={() => onTabChange("diff")}>
+            Diff
+          </TabButton>
+        ) : null}
+        {showBrowserTab ? (
+          <TabButton active={activeTab === "browser"} onClick={() => onTabChange("browser")}>
+            Browser
+          </TabButton>
+        ) : null}
       </div>
       <div className="relative min-h-0 flex-1">
         <div className={cn("absolute inset-0", activeTab === "diff" ? "block" : "hidden")}>

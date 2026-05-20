@@ -36,6 +36,7 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   browserToggleShortcutLabel: string | null;
   gitCwd: string | null;
+  browserAvailable: boolean;
   browserOpen: boolean;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -77,6 +78,7 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   browserToggleShortcutLabel,
   gitCwd,
+  browserAvailable,
   browserOpen,
   diffOpen,
   onRunProjectScript,
@@ -175,14 +177,14 @@ export const ChatHeader = memo(function ChatHeader({
                 aria-label="Toggle browser panel"
                 variant="outline"
                 size="xs"
-                disabled={!activeProjectName}
+                disabled={!browserAvailable}
               >
                 <GlobeIcon className="size-3" />
               </Toggle>
             }
           />
           <TooltipPopup side="bottom">
-            {!activeProjectName
+            {!browserAvailable
               ? "Browser panel is unavailable until this thread has an active project."
               : browserToggleShortcutLabel
                 ? `Toggle browser panel (${browserToggleShortcutLabel})`
