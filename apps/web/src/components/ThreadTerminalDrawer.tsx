@@ -31,6 +31,7 @@ import {
 } from "../terminal-links";
 import {
   isDiffToggleShortcut,
+  isBrowserToggleShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
@@ -47,6 +48,7 @@ import {
 } from "../types";
 import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
+import { detectDevServerUrl } from "../browser";
 import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalStateStore";
 
 const MIN_DRAWER_HEIGHT = 180;
@@ -257,6 +259,8 @@ interface TerminalViewportProps {
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onDetectedDevServerUrl?: ((url: string) => void) | undefined;
+  onOpenUrlInBrowser?: ((url: string) => boolean) | undefined;
   focusRequestId: number;
   autoFocus: boolean;
   resizeEpoch: number;
@@ -274,6 +278,8 @@ export function TerminalViewport({
   runtimeEnv,
   onSessionExited,
   onAddTerminalContext,
+  onDetectedDevServerUrl,
+  onOpenUrlInBrowser,
   focusRequestId,
   autoFocus,
   resizeEpoch,
@@ -423,7 +429,8 @@ export function TerminalViewport({
         isTerminalSplitShortcut(event, currentKeybindings, options) ||
         isTerminalNewShortcut(event, currentKeybindings, options) ||
         isTerminalCloseShortcut(event, currentKeybindings, options) ||
-        isDiffToggleShortcut(event, currentKeybindings, options)
+        isDiffToggleShortcut(event, currentKeybindings, options) ||
+        isBrowserToggleShortcut(event, currentKeybindings, options)
       ) {
         return false;
       }
@@ -491,6 +498,9 @@ export function TerminalViewport({
               if (!latestTerminal) return;
 
               if (match.kind === "url") {
+                if (onOpenUrlInBrowser?.(match.text)) {
+                  return;
+                }
                 void localApi.shell.openExternal(match.text).catch((error: unknown) => {
                   writeSystemMessage(
                     latestTerminal,
@@ -579,6 +589,10 @@ export function TerminalViewport({
 
       if (event.type === "output") {
         activeTerminal.write(event.data);
+        const detectedUrl = detectDevServerUrl(event.data);
+        if (detectedUrl) {
+          onDetectedDevServerUrl?.(detectedUrl);
+        }
         clearSelectionAction();
         return;
       }
@@ -820,6 +834,8 @@ interface ThreadTerminalDrawerProps {
   onCloseTerminal: (terminalId: string) => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onDetectedDevServerUrl?: ((url: string) => void) | undefined;
+  onOpenUrlInBrowser?: ((url: string) => boolean) | undefined;
   keybindings: ResolvedKeybindingsConfig;
 }
 
@@ -874,6 +890,8 @@ export default function ThreadTerminalDrawer({
   onCloseTerminal,
   onHeightChange,
   onAddTerminalContext,
+  onDetectedDevServerUrl,
+  onOpenUrlInBrowser,
   keybindings,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
@@ -1189,6 +1207,8 @@ export default function ThreadTerminalDrawer({
                         {...(runtimeEnv ? { runtimeEnv } : {})}
                         onSessionExited={() => onCloseTerminal(terminalId)}
                         onAddTerminalContext={onAddTerminalContext}
+                        onDetectedDevServerUrl={onDetectedDevServerUrl}
+                        onOpenUrlInBrowser={onOpenUrlInBrowser}
                         focusRequestId={focusRequestId}
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
@@ -1212,6 +1232,8 @@ export default function ThreadTerminalDrawer({
                   {...(runtimeEnv ? { runtimeEnv } : {})}
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}
+                  onDetectedDevServerUrl={onDetectedDevServerUrl}
+                  onOpenUrlInBrowser={onOpenUrlInBrowser}
                   focusRequestId={focusRequestId}
                   autoFocus
                   resizeEpoch={resizeEpoch}
