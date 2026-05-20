@@ -144,12 +144,14 @@ function getWslHostGateway(): string | null {
     return null;
   }
 
+  const systemRoot = process.env.SystemRoot?.trim() || "C:\\Windows";
+  const wslPath = `${systemRoot}\\System32\\wsl.exe`;
   for (const args of [
     ["-d", "VM1", "--", "ip", "route", "show", "default"],
     ["--", "ip", "route", "show", "default"],
   ] as const) {
     try {
-      const output = NodeChildProcess.execFileSync("wsl.exe", args, {
+      const output = NodeChildProcess.execFileSync(wslPath, args, {
         encoding: "utf8",
         timeout: 1_500,
         windowsHide: true,
