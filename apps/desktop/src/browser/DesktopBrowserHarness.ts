@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off preferSchemaOverJson:off anyUnknownInErrorContext:off
+import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeHttp from "node:http";
 import * as NodeOS from "node:os";
@@ -124,6 +125,10 @@ function getPrimaryNetworkHost(): string | null {
   if (override) {
     return override;
   }
+  const wslHostGateway = getWslHostGateway();
+  if (wslHostGateway) {
+    return wslHostGateway;
+  }
   for (const entries of Object.values(NodeOS.networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.family === "IPv4" && !entry.internal) {
@@ -131,6 +136,33 @@ function getPrimaryNetworkHost(): string | null {
       }
     }
   }
+  return null;
+}
+
+function getWslHostGateway(): string | null {
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  for (const args of [
+    ["-d", "VM1", "--", "ip", "route", "show", "default"],
+    ["--", "ip", "route", "show", "default"],
+  ] as const) {
+    try {
+      const output = NodeChildProcess.execFileSync("wsl.exe", args, {
+        encoding: "utf8",
+        timeout: 1_500,
+        windowsHide: true,
+      });
+      const match = output.match(/\bdefault via ([^\s]+)/);
+      if (match?.[1]) {
+        return match[1];
+      }
+    } catch {
+      // Fall back to the first non-internal Windows network interface.
+    }
+  }
+
   return null;
 }
 
