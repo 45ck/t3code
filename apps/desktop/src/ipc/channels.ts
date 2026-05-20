@@ -11,6 +11,7 @@ export const BROWSER_FORWARD_CHANNEL = "desktop:browser-forward";
 export const BROWSER_RELOAD_CHANNEL = "desktop:browser-reload";
 export const BROWSER_GET_STATUS_CHANNEL = "desktop:browser-get-status";
 export const BROWSER_STATUS_CHANNEL = "desktop:browser-status";
+export const BROWSER_OPEN_REQUEST_CHANNEL = "desktop:browser-open-request";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";
 export const UPDATE_STATE_CHANNEL = "desktop:update-state";
 export const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";

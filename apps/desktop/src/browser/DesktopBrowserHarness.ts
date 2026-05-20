@@ -296,6 +296,18 @@ const make = Effect.gen(function* () {
     }
   });
 
+  const emitOpenRequest = (input: {
+    readonly url: string;
+    readonly newTab?: boolean;
+  }) =>
+    Effect.sync(() => {
+      for (const window of Electron.BrowserWindow.getAllWindows()) {
+        if (!window.webContents.isDestroyed()) {
+          window.webContents.send(IpcChannels.BROWSER_OPEN_REQUEST_CHANNEL, input);
+        }
+      }
+    });
+
   const ensureView = Effect.fn("desktop.browser.ensureView")(function* () {
     const existing = yield* Ref.get(viewRef);
     if (existing && !existing.webContents.isDestroyed()) {
@@ -562,8 +574,16 @@ const make = Effect.gen(function* () {
   const callTool = Effect.fn("desktop.browser.callTool")(function* (name: string, args: unknown) {
     const input = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
     switch (name) {
-      case "browser_open":
-        return toolText(JSON.stringify(yield* navigate({ url: String(input.url ?? "") }), null, 2));
+      case "browser_open": {
+        const url = String(input.url ?? "");
+        yield* emitOpenRequest({ url });
+        return toolText(JSON.stringify(yield* navigate({ url }), null, 2));
+      }
+      case "browser_new_tab": {
+        const url = String(input.url ?? "about:blank");
+        yield* emitOpenRequest({ url, newTab: true });
+        return toolText(JSON.stringify(yield* navigate({ url }), null, 2));
+      }
       case "browser_snapshot": {
         const page = yield* snapshot;
         const elements = page.elements
@@ -677,6 +697,14 @@ const make = Effect.gen(function* () {
               type: "object",
               properties: { url: { type: "string" } },
               required: ["url"],
+            },
+          },
+          {
+            name: "browser_new_tab",
+            description: "Open a URL in a new visible tab in the T3 desktop browser panel.",
+            inputSchema: {
+              type: "object",
+              properties: { url: { type: "string" } },
             },
           },
           {

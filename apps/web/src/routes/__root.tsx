@@ -1,5 +1,9 @@
-import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
+import {
+  type EnvironmentId,
+  type ServerLifecycleWelcomePayload,
+  type ThreadId,
+} from "@t3tools/contracts";
+import { scopedProjectKey, scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -29,6 +33,9 @@ import {
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { readLocalApi } from "../localApi";
+import { useBrowserPanelStore } from "../browserPanelStore";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
+import { stripDiffSearchParams } from "../diffRouteSearch";
 import { useSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -43,7 +50,7 @@ import {
   useServerConfigUpdatedSubscription,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
-import { useStore } from "../store";
+import { selectThreadByRef, useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import {
@@ -134,6 +141,7 @@ function RootRouteView() {
       <AnchoredToastProvider>
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         {primaryEnvironmentAuthenticated ? <ServerStateBootstrap /> : null}
+        {primaryEnvironmentAuthenticated ? <BrowserOpenRequestRouter /> : null}
         <EnvironmentConnectionManagerBootstrap />
         <SshPasswordPromptDialog />
         <HostedStaticEnvironmentBootstrap />
@@ -173,6 +181,84 @@ function HostedStaticEnvironmentBootstrap() {
 
     useStore.getState().setActiveEnvironmentId(firstSavedEnvironment.environmentId);
   }, [savedEnvironmentCount]);
+
+  return null;
+}
+
+function BrowserOpenRequestRouter() {
+  const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const openUrlInBrowserStore = useBrowserPanelStore((store) => store.openUrl);
+  const readPathname = useEffectEvent(() => pathname);
+
+  const handleOpenRequest = useEffectEvent((request: { url: string; newTab?: boolean }) => {
+    const url = request.url.trim();
+    if (!url) {
+      return;
+    }
+
+    const segments = readPathname()
+      .split("/")
+      .map((segment) => decodeURIComponent(segment))
+      .filter(Boolean);
+    if (segments[0] === "draft" && segments[1]) {
+      const draftId = DraftId.make(segments[1]);
+      const draftSession = useComposerDraftStore.getState().getDraftSession(draftId);
+      if (!draftSession) {
+        return;
+      }
+      const projectKey = scopedProjectKey(
+        scopeProjectRef(draftSession.environmentId, draftSession.projectId),
+      );
+      if (request.newTab) {
+        useBrowserPanelStore.getState().addTab(projectKey, url);
+      } else {
+        openUrlInBrowserStore(projectKey, url);
+      }
+      void navigate({
+        to: "/draft/$draftId",
+        params: { draftId },
+        replace: true,
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          return { ...rest, diff: "1", rpt: "browser" };
+        },
+      });
+      return;
+    }
+
+    const [environmentId, threadId] = segments;
+    if (!environmentId || !threadId) {
+      return;
+    }
+    const threadRef = scopeThreadRef(environmentId as EnvironmentId, threadId as ThreadId);
+    const thread = selectThreadByRef(useStore.getState(), threadRef);
+    if (!thread) {
+      return;
+    }
+    const projectKey = scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
+    if (request.newTab) {
+      useBrowserPanelStore.getState().addTab(projectKey, url);
+    } else {
+      openUrlInBrowserStore(projectKey, url);
+    }
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        environmentId: thread.environmentId,
+        threadId: thread.id,
+      },
+      replace: true,
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        return { ...rest, diff: "1", rpt: "browser" };
+      },
+    });
+  });
+
+  useEffect(() => {
+    return window.desktopBridge?.browser?.onOpenRequest(handleOpenRequest);
+  }, []);
 
   return null;
 }

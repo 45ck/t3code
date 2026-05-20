@@ -115,6 +115,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         ipcRenderer.removeListener(IpcChannels.BROWSER_STATUS_CHANNEL, wrappedListener);
       };
     },
+    onOpenRequest: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        if (typeof request !== "object" || request === null) return;
+        listener(request as Parameters<typeof listener>[0]);
+      };
+
+      ipcRenderer.on(IpcChannels.BROWSER_OPEN_REQUEST_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.BROWSER_OPEN_REQUEST_CHANNEL, wrappedListener);
+      };
+    },
   },
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {

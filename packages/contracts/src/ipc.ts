@@ -393,6 +393,16 @@ export const DesktopBrowserNavigateInputSchema = Schema.Struct({
   url: Schema.String,
 });
 
+export interface DesktopBrowserOpenRequest {
+  url: string;
+  newTab?: boolean;
+}
+
+export const DesktopBrowserOpenRequestSchema = Schema.Struct({
+  url: Schema.String,
+  newTab: Schema.optionalKey(Schema.Boolean),
+});
+
 export interface DesktopBrowserStatus {
   url: string;
   title: string;
@@ -465,6 +475,7 @@ export interface DesktopBridge {
     reload: () => Promise<DesktopBrowserStatus>;
     getStatus: () => Promise<DesktopBrowserStatus>;
     onStatus: (listener: (status: DesktopBrowserStatus) => void) => () => void;
+    onOpenRequest: (listener: (request: DesktopBrowserOpenRequest) => void) => () => void;
   };
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
