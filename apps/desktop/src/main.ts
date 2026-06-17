@@ -30,6 +30,7 @@ import * as DesktopApplicationMenu from "./window/DesktopApplicationMenu.ts";
 import * as DesktopAssets from "./app/DesktopAssets.ts";
 import * as DesktopBackendConfiguration from "./backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendManager from "./backend/DesktopBackendManager.ts";
+import * as DesktopBrowserHarness from "./browser/DesktopBrowserHarness.ts";
 import * as DesktopEnvironment from "./app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./app/DesktopLifecycle.ts";
 import * as DesktopObservability from "./app/DesktopObservability.ts";
@@ -126,11 +127,14 @@ const desktopServerExposureLayer = DesktopServerExposure.layer.pipe(
 );
 
 const desktopWindowLayer = DesktopWindow.layer.pipe(Layer.provideMerge(desktopServerExposureLayer));
+const desktopBrowserHarnessLayer = DesktopBrowserHarness.layer.pipe(
+  Layer.provideMerge(desktopWindowLayer),
+);
 
 const desktopBackendLayer = DesktopBackendManager.layer.pipe(
   Layer.provideMerge(DesktopAppIdentity.layer),
   Layer.provideMerge(DesktopBackendConfiguration.layer),
-  Layer.provideMerge(desktopWindowLayer),
+  Layer.provideMerge(desktopBrowserHarnessLayer),
 );
 
 const desktopApplicationLayer = Layer.mergeAll(

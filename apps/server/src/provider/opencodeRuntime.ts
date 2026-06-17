@@ -29,6 +29,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { isWindowsCommandNotFound } from "../processRunner.ts";
+import { mergeOpenCodeBrowserMcpConfig } from "./browserMcpConfig.ts";
 import { collectStreamAsString } from "./providerSnapshot.ts";
 import * as NetService from "@t3tools/shared/Net";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
@@ -342,7 +343,10 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
             shell: process.platform === "win32",
             env: {
               ...(input.environment ?? process.env),
-              OPENCODE_CONFIG_CONTENT: OPENCODE_EMPTY_CONFIG_CONTENT,
+              OPENCODE_CONFIG_CONTENT: mergeOpenCodeBrowserMcpConfig(
+                (input.environment ?? process.env).OPENCODE_CONFIG_CONTENT ??
+                  OPENCODE_EMPTY_CONFIG_CONTENT,
+              ),
             },
           }),
         )

@@ -23,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import {
   parseScopedThreadKey,
+  scopedProjectKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
@@ -44,6 +45,7 @@ import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { useBrowserPanelStore } from "../browserPanelStore";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -340,6 +342,7 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      onBrowserPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "server";
       draftId?: never;
@@ -348,6 +351,7 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      onBrowserPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "draft";
       draftId: DraftId;
@@ -439,6 +443,8 @@ interface PersistentThreadTerminalDrawerProps {
   closeShortcutLabel: string | undefined;
   keybindings: ResolvedKeybindingsConfig;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onDetectedDevServerUrl?: ((url: string) => void) | undefined;
+  onOpenUrlInBrowser?: ((url: string) => boolean) | undefined;
 }
 
 const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDrawer({
@@ -452,6 +458,8 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   closeShortcutLabel,
   keybindings,
   onAddTerminalContext,
+  onDetectedDevServerUrl,
+  onOpenUrlInBrowser,
 }: PersistentThreadTerminalDrawerProps) {
   const serverThread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
@@ -599,6 +607,8 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         onCloseTerminal={closeTerminal}
         onHeightChange={setTerminalHeight}
         onAddTerminalContext={handleAddTerminalContext}
+        onDetectedDevServerUrl={onDetectedDevServerUrl}
+        onOpenUrlInBrowser={onOpenUrlInBrowser}
       />
     </div>
   );
@@ -609,6 +619,7 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     threadId,
     routeKind,
+    onBrowserPanelOpen,
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
   } = props;
@@ -1698,6 +1709,15 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
+  const browserPanelShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "browser.toggle", nonTerminalShortcutLabelOptions),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
+  const activeRightPanelTab = rawSearch.rpt ?? "diff";
+  const browserOpen = diffOpen && activeRightPanelTab === "browser";
+  const openUrlInBrowserStore = useBrowserPanelStore((store) => store.openUrl);
+  const activeBrowserProjectKey = activeProjectRef ? scopedProjectKey(activeProjectRef) : null;
+  const browserPanelAvailable = Boolean(activeBrowserProjectKey);
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -1714,10 +1734,127 @@ export default function ChatView(props: ChatViewProps) {
       replace: true,
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
+        if (diffOpen && activeRightPanelTab === "diff") {
+          return { ...rest, diff: undefined };
+        }
+        return { ...rest, diff: "1", rpt: "diff" };
       },
     });
-  }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  }, [
+    activeRightPanelTab,
+    diffOpen,
+    environmentId,
+    isServerThread,
+    navigate,
+    onDiffPanelOpen,
+    threadId,
+  ]);
+  const onToggleBrowser = useCallback(() => {
+    if (!browserPanelAvailable) {
+      return;
+    }
+    onBrowserPanelOpen?.();
+    if (routeKind === "draft") {
+      if (!draftId) {
+        return;
+      }
+      void navigate({
+        to: "/draft/$draftId",
+        params: { draftId },
+        replace: true,
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          if (diffOpen && activeRightPanelTab === "browser") {
+            return { ...rest, diff: undefined };
+          }
+          return { ...rest, diff: "1", rpt: "browser" };
+        },
+      });
+      return;
+    }
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        environmentId,
+        threadId,
+      },
+      replace: true,
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        if (diffOpen && activeRightPanelTab === "browser") {
+          return { ...rest, diff: undefined };
+        }
+        return { ...rest, diff: "1", rpt: "browser" };
+      },
+    });
+  }, [
+    activeRightPanelTab,
+    browserPanelAvailable,
+    diffOpen,
+    draftId,
+    environmentId,
+    navigate,
+    onBrowserPanelOpen,
+    routeKind,
+    threadId,
+  ]);
+  const onOpenUrlInBrowser = useCallback(
+    (url: string) => {
+      if (!browserPanelAvailable || !activeBrowserProjectKey) {
+        return false;
+      }
+      openUrlInBrowserStore(activeBrowserProjectKey, url);
+      onBrowserPanelOpen?.();
+      if (routeKind === "draft") {
+        if (!draftId) {
+          return false;
+        }
+        void navigate({
+          to: "/draft/$draftId",
+          params: { draftId },
+          replace: true,
+          search: (previous) => {
+            const rest = stripDiffSearchParams(previous);
+            return { ...rest, diff: "1", rpt: "browser" };
+          },
+        });
+        return true;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId,
+          threadId,
+        },
+        replace: true,
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          return { ...rest, diff: "1", rpt: "browser" };
+        },
+      });
+      return true;
+    },
+    [
+      activeBrowserProjectKey,
+      browserPanelAvailable,
+      draftId,
+      environmentId,
+      navigate,
+      onBrowserPanelOpen,
+      openUrlInBrowserStore,
+      routeKind,
+      threadId,
+    ],
+  );
+  const onDetectedDevServerUrl = useCallback(
+    (url: string) => {
+      if (!isServerThread || !activeBrowserProjectKey) {
+        return;
+      }
+      openUrlInBrowserStore(activeBrowserProjectKey, url);
+    },
+    [activeBrowserProjectKey, isServerThread, openUrlInBrowserStore],
+  );
 
   const envLocked = Boolean(
     activeThread &&
@@ -2517,6 +2654,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "browser.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggleBrowser();
+        return;
+      }
+
       if (command === "modelPicker.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -2545,6 +2689,7 @@ export default function ChatView(props: ChatViewProps) {
     runProjectScript,
     splitTerminal,
     keybindings,
+    onToggleBrowser,
     onToggleDiff,
     toggleTerminalVisibility,
   ]);
@@ -3528,6 +3673,9 @@ export default function ChatView(props: ChatViewProps) {
           terminalAvailable={activeProject !== undefined}
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+          browserOpen={browserOpen}
+          browserAvailable={browserPanelAvailable}
+          browserToggleShortcutLabel={browserPanelShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
@@ -3536,6 +3684,7 @@ export default function ChatView(props: ChatViewProps) {
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
+          onToggleBrowser={onToggleBrowser}
           onToggleDiff={onToggleDiff}
         />
       </header>
@@ -3754,6 +3903,10 @@ export default function ChatView(props: ChatViewProps) {
           closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
           keybindings={keybindings}
           onAddTerminalContext={addTerminalContextToDraft}
+          onDetectedDevServerUrl={
+            mountedThreadKey === activeThreadKey ? onDetectedDevServerUrl : undefined
+          }
+          onOpenUrlInBrowser={mountedThreadKey === activeThreadKey ? onOpenUrlInBrowser : undefined}
         />
       ))}
       {shouldUsePlanSidebarSheet ? (

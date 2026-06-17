@@ -17,8 +17,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
-const APP_BUNDLE_ID = isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code";
+const APP_DISPLAY_NAME = isDevelopment
+  ? "T3 Code Browser Preview (Dev)"
+  : "T3 Code Browser Preview";
+const APP_BUNDLE_ID = isDevelopment
+  ? "com.45ck.t3code.browserpreview.dev"
+  : "com.45ck.t3code.browserpreview";
 const LAUNCHER_VERSION = 2;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

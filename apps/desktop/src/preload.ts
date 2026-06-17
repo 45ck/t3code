@@ -96,6 +96,37 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ...(position === undefined ? {} : { position }),
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
+  browser: {
+    setBounds: (input) => ipcRenderer.invoke(IpcChannels.BROWSER_SET_BOUNDS_CHANNEL, input),
+    hide: () => ipcRenderer.invoke(IpcChannels.BROWSER_HIDE_CHANNEL),
+    navigate: (input) => ipcRenderer.invoke(IpcChannels.BROWSER_NAVIGATE_CHANNEL, input),
+    back: () => ipcRenderer.invoke(IpcChannels.BROWSER_BACK_CHANNEL),
+    forward: () => ipcRenderer.invoke(IpcChannels.BROWSER_FORWARD_CHANNEL),
+    reload: () => ipcRenderer.invoke(IpcChannels.BROWSER_RELOAD_CHANNEL),
+    getStatus: () => ipcRenderer.invoke(IpcChannels.BROWSER_GET_STATUS_CHANNEL),
+    onStatus: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, status: unknown) => {
+        if (typeof status !== "object" || status === null) return;
+        listener(status as Parameters<typeof listener>[0]);
+      };
+
+      ipcRenderer.on(IpcChannels.BROWSER_STATUS_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.BROWSER_STATUS_CHANNEL, wrappedListener);
+      };
+    },
+    onOpenRequest: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        if (typeof request !== "object" || request === null) return;
+        listener(request as Parameters<typeof listener>[0]);
+      };
+
+      ipcRenderer.on(IpcChannels.BROWSER_OPEN_REQUEST_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.BROWSER_OPEN_REQUEST_CHANNEL, wrappedListener);
+      };
+    },
+  },
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;
